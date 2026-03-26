@@ -10,10 +10,14 @@ import { createRateLimiter, RateLimiter } from "./rate-limiter.js";
 import { createCircuitBreaker, CircuitBreakerInstance } from "./circuit-breaker.js";
 
 export interface TargetSelector {
-  next(): string;
+  next(): string | null;
+  stop?(): void;
 }
 
-export function createTargetSelector(upstream: Upstream): TargetSelector {
+export function createTargetSelector(
+  upstream: Upstream,
+  healthCheck?: import("./types.js").HealthCheck
+): TargetSelector {
   // Single URL — always return it
   if (upstream.url) {
     return { next: () => upstream.url! };
@@ -21,31 +25,83 @@ export function createTargetSelector(upstream: Upstream): TargetSelector {
 
   const targets = upstream.targets!;
   const balance = upstream.balance ?? "round_robin";
+  const healthy = new Set<string>(targets.map((t) => t.url));
+  let intervals: ReturnType<typeof setInterval>[] = [];
+
+  // Start health checks if configured
+  if (healthCheck) {
+    const intervalMs = parseDuration(healthCheck.interval);
+    const threshold = healthCheck.unhealthy_threshold;
+    const failCounts = new Map<string, number>();
+
+    for (const target of targets) {
+      failCounts.set(target.url, 0);
+
+      const timer = setInterval(() => {
+        const url = new URL(healthCheck.path, target.url);
+        const req = httpRequest(url, (res) => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 400) {
+            failCounts.set(target.url, 0);
+            healthy.add(target.url);
+          } else {
+            const count = (failCounts.get(target.url) ?? 0) + 1;
+            failCounts.set(target.url, count);
+            if (count >= threshold) {
+              healthy.delete(target.url);
+            }
+          }
+          res.resume(); // drain the response
+        });
+        req.on("error", () => {
+          const count = (failCounts.get(target.url) ?? 0) + 1;
+          failCounts.set(target.url, count);
+          if (count >= threshold) {
+            healthy.delete(target.url);
+          }
+        });
+        req.setTimeout(5000, () => req.destroy());
+        req.end();
+      }, intervalMs);
+
+      intervals.push(timer);
+    }
+  }
 
   if (balance === "round_robin") {
     let index = 0;
     return {
       next() {
-        const url = targets[index % targets.length].url;
+        const urls = targets.map((t) => t.url).filter((u) => healthy.has(u));
+        if (urls.length === 0) return null;
+        const url = urls[index % urls.length];
         index++;
         return url;
+      },
+      stop() {
+        intervals.forEach(clearInterval);
       },
     };
   }
 
-  // Weighted round robin: build a sequence repeating each target by its weight
-  const sequence: string[] = [];
-  for (const target of targets) {
-    for (let i = 0; i < target.weight; i++) {
-      sequence.push(target.url);
-    }
-  }
+  // Weighted round robin
   let index = 0;
   return {
     next() {
+      const sequence: string[] = [];
+      for (const target of targets) {
+        if (healthy.has(target.url)) {
+          for (let i = 0; i < target.weight; i++) {
+            sequence.push(target.url);
+          }
+        }
+      }
+      if (sequence.length === 0) return null;
       const url = sequence[index % sequence.length];
       index++;
       return url;
+    },
+    stop() {
+      intervals.forEach(clearInterval);
     },
   };
 }
@@ -195,6 +251,11 @@ async function proxyRequest(
   }
 
   const selectedUrl = targetSelector ? targetSelector.next() : route.upstream.url!;
+  if (!selectedUrl) {
+    res.writeHead(503, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "no_healthy_upstreams" }));
+    return;
+  }
   const upstreamUrl = new URL(selectedUrl);
   const upstreamPath = buildUpstreamPath(route, req.url ?? "/");
   const timeout = getTimeout(route, globalTimeout);
@@ -310,10 +371,10 @@ export function createGateway(config: GatewayConfig): Server {
     }
   }
 
-  // Create target selectors per route
+  // Create target selectors per route (with health checks if configured)
   const targetSelectors = new Map<string, TargetSelector>();
   for (const route of config.routes) {
-    targetSelectors.set(route.path, createTargetSelector(route.upstream));
+    targetSelectors.set(route.path, createTargetSelector(route.upstream, route.health_check));
   }
 
   const server = createServer((req, res) => {
@@ -376,18 +437,21 @@ export function createGateway(config: GatewayConfig): Server {
     proxyRequest(req, res, route, config.gateway.global_timeout, cb, ts);
   });
 
-  return server;
+  return { server, targetSelectors };
 }
 
 export function startGateway(
   config: GatewayConfig
 ): Promise<{ server: Server; close: () => Promise<void> }> {
-  const server = createGateway(config);
+  const { server, targetSelectors } = createGateway(config);
   return new Promise((resolve) => {
     server.listen(config.gateway.port, () => {
       resolve({
         server,
-        close: () => new Promise<void>((r) => server.close(() => r())),
+        close: () => {
+          targetSelectors.forEach((ts) => ts.stop?.());
+          return new Promise<void>((r) => server.close(() => r()));
+        },
       });
     });
   });
