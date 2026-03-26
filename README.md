@@ -56,10 +56,12 @@ Tests are self-contained — they spin up mock upstream servers and gateway inst
 - [x] Response header transforms — add and remove
 - [x] Load balancing — round robin
 - [x] Load balancing — weighted round robin
+- [x] Health checks — background pings to upstream targets
+- [x] Health checks — unhealthy threshold, automatic removal and recovery
+- [x] Health checks — 503 when all upstreams are down
 
 ## Not Implemented
 
-- [ ] Health checks for upstream targets (background pings)
 - [ ] Request body transforms (dot-notation field mapping)
 - [ ] Response body transforms (envelope wrapping)
 
@@ -74,5 +76,6 @@ The gateway is structured as a pipeline:
 5. **Auth** — API key check if configured
 6. **Circuit breaker** — blocks requests if upstream is failing
 7. **Proxy** — buffers request body, forwards to upstream (with target selection for load balancing), applies header transforms, retries on configured status codes
+8. **Health checks** — background interval pings to upstream targets, removes unhealthy ones from the target selector
 
 Each feature is a separate module (`rate-limiter.ts`, `circuit-breaker.ts`) wired together in `server.ts`.

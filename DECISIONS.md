@@ -52,11 +52,15 @@ Whoops, somehow missed header transforms. Doing that now. You get the picture: t
 
 Rooound robin (yum!). I've never done a weighted round robin before, but seems straightforward. Going to go for the naive approach of literally hitting the weight x times in a row before moving to the next item.
 
+# Health Checks
+
+(This one paragraph I had Claude write for me due to time. The others were just me.)
+The health checker runs background `setInterval` pings to each upstream target. After N consecutive failures (the `unhealthy_threshold`), it removes that target from the pool. When it starts passing again, it gets added back. If all upstreams are down, we return 503 with `no_healthy_upstreams`. The health check intervals get cleaned up when the gateway shuts down. This integrates directly into the target selector — it just filters out unhealthy URLs before picking the next one.
+
 # What I'd Build Next
 
 With more time, I'd tackle:
 
-- **Health checks** for upstream targets — background pings to detect unhealthy upstreams, only useful with load balancing so they'd integrate with the target selector
 - **Body transforms** — request body mapping (dot notation restructuring) and response envelope wrapping. These are the most complex transforms and would need careful JSON path handling
 - **Graceful shutdown** — drain in-flight requests before stopping the server
 - **Logging/observability** — structured request logs with timing, status codes, which upstream was selected
