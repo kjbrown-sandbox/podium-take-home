@@ -10,6 +10,8 @@ I'm most familiar with TypeScript, so I'm going to use that. We need to move fas
 
 Holy Hannah, Claude copied the structure from the PDF wrong. The structure was almost the same. But a careful look revealed some subtle but distinct differences. Ha! I'm happy it could read from PDFs at all.
 
+As far as feature we'll implement, I've read through the PDF myself and agree with the list that Claude made about features in order of importance. We can go in that order.
+
 I like starting with broken tests because then when it passes green, I know my changes did something. Nothing more misleading than a "green" test that was actually poorly written and never caught the bad logic.
 
 Right now, I'm going through and comparing the yaml to the types that Claude just produced. (After checking.) Heck yeah! Looks great. But I think I found a typo in the yaml given to me (may or may not be intnetional).
@@ -27,3 +29,5 @@ I noticed some code duplication when it implemented rate limiting, so I refactor
 Auth isn't too bad. Tests look okay. Time to implement. It's a very simple auth thing, obviously nothing connected to OAuth or anything, but it'll do for this take home.
 
 Tests for retrying look solid too. Moving forward with implementation. We're storing the entire response now in our buffer instead of immediately piping it to the server because we need to store a copy if we want to retry it.
+
+Time for circtuit breaking now, ooooh. I've looked through the tests, they feel fine to me. Slightly redundant on checking that things work without the circuit breaking specs (it's the standard stuff already tested), but I believe in redundancy for tests when they're cheap. And these ones are. Onwards to implementation!
