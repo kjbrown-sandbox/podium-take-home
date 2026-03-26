@@ -7,3 +7,5 @@ Holy Hannah, Claude copied the structure from the PDF wrong. The structure was a
 I like starting with broken tests because then when it passes green, I know my changes did something. Nothing more misleading than a "green" test that was actually poorly written and never caught the bad logic.
 
 Right now, I'm going through and comparing the yaml to the types that Claude just produced. (After checking.) Heck yeah! Looks great. But I think I found a typo in the yaml given to me (may or may not be intnetional).
+
+I'm now looking at tests to see if they accurately test the implementation we haven't made yet. I'll do tests one feature at a time. (After checking.) Tests look good!
