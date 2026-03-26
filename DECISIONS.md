@@ -17,3 +17,5 @@ Now onto rate limiting. Most of this is straightforward, but there are 2 options
 I'm going over the tests for rate limiting now. They're not bad, though I worry a bit about the sequential testing in the test suite considering that one failure cascades to the next. The limits are very reasonable, though, and it would be really heavy to spin up another gateway within one test bed for true independence. I'll keep them as they are. I also noticed we didn't have enough edge cases, so I added a few more. Tests are looking good now. Just need to implement it now. Adding a time injection to reduce flakiness around verifying when the window is unblocked (can be done with raw waits/timeouts, but that's flaky).
 
 I noticed some code duplication when it implemented rate limiting, so I refactored it.
+
+Auth isn't too bad. Tests look okay. Time to implement.
