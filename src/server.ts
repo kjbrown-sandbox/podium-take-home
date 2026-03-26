@@ -47,6 +47,34 @@ function getTimeout(route: Route, globalTimeout: string): number {
   return parseDuration(timeoutStr);
 }
 
+function resolveVariable(value: string, requestTime: number, routePath: string): string {
+  if (value === "$request_time") return String(requestTime);
+  if (value === "$response_time") return String(Date.now());
+  if (value === "$route_path") return routePath;
+  if (value.startsWith("$literal:")) return value.slice("$literal:".length);
+  return value;
+}
+
+function applyResponseHeaderTransform(
+  headers: Record<string, string | string[] | undefined>,
+  route: Route
+): Record<string, string | string[] | undefined> {
+  if (!route.response_transform?.headers) return headers;
+  const result = { ...headers };
+  const { add, remove } = route.response_transform.headers;
+  if (remove) {
+    for (const name of remove) {
+      delete result[name.toLowerCase()];
+    }
+  }
+  if (add) {
+    for (const [name, value] of Object.entries(add)) {
+      result[name.toLowerCase()] = value;
+    }
+  }
+  return result;
+}
+
 function bufferBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
@@ -128,6 +156,23 @@ async function proxyRequest(
   const upstreamPath = buildUpstreamPath(route, req.url ?? "/");
   const timeout = getTimeout(route, globalTimeout);
   const body = await bufferBody(req);
+  const requestTime = Date.now();
+
+  // Apply request header transforms
+  const headers = { ...req.headers };
+  if (route.request_transform?.headers) {
+    const { add, remove } = route.request_transform.headers;
+    if (remove) {
+      for (const name of remove) {
+        delete headers[name.toLowerCase()];
+      }
+    }
+    if (add) {
+      for (const [name, value] of Object.entries(add)) {
+        headers[name.toLowerCase()] = resolveVariable(value, requestTime, route.path);
+      }
+    }
+  }
 
   const maxAttempts = route.retry ? 1 + route.retry.attempts : 1;
   const retryOn = route.retry?.on ?? [];
@@ -146,7 +191,7 @@ async function proxyRequest(
     try {
       const result = await sendUpstreamRequest(
         req.method ?? "GET",
-        req.headers,
+        headers,
         body,
         upstreamUrl,
         upstreamPath,
@@ -164,7 +209,8 @@ async function proxyRequest(
         } else {
           circuitBreaker?.recordSuccess();
         }
-        res.writeHead(result.statusCode, result.headers);
+        const responseHeaders = applyResponseHeaderTransform(result.headers, route);
+        res.writeHead(result.statusCode, responseHeaders);
         res.end(result.body);
         return;
       }
@@ -183,7 +229,8 @@ async function proxyRequest(
 
   // All retries exhausted — record failure and return last response
   circuitBreaker?.recordFailure();
-  res.writeHead(lastStatusCode, lastHeaders);
+  const responseHeaders = applyResponseHeaderTransform(lastHeaders, route);
+  res.writeHead(lastStatusCode, responseHeaders);
   res.end(lastBody);
 }
 
