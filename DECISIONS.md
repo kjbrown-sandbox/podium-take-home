@@ -33,3 +33,5 @@ Tests for retrying look solid too. Moving forward with implementation. We're sto
 Time for circtuit breaking now, ooooh. I've looked through the tests, they feel fine to me. Slightly redundant on checking that things work without the circuit breaking specs (it's the standard stuff already tested), but I believe in redundancy for tests when they're cheap. And these ones are. Onwards to implementation!
 
 Whoops, somehow missed header transforms. Doing that now. You get the picture: tests first, implementation after. Tests look good. To implement!
+
+Rooound robin (yum!). I've never done a weighted round robin before, but seems straightforward. Going to go for the naive approach of literally hitting the weight x times in a row before moving to the next item.

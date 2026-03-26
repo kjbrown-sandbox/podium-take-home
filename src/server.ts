@@ -5,9 +5,50 @@ import {
   Server,
   request as httpRequest,
 } from "node:http";
-import { GatewayConfig, Route } from "./types.js";
+import { GatewayConfig, Route, Upstream } from "./types.js";
 import { createRateLimiter, RateLimiter } from "./rate-limiter.js";
 import { createCircuitBreaker, CircuitBreakerInstance } from "./circuit-breaker.js";
+
+export interface TargetSelector {
+  next(): string;
+}
+
+export function createTargetSelector(upstream: Upstream): TargetSelector {
+  // Single URL — always return it
+  if (upstream.url) {
+    return { next: () => upstream.url! };
+  }
+
+  const targets = upstream.targets!;
+  const balance = upstream.balance ?? "round_robin";
+
+  if (balance === "round_robin") {
+    let index = 0;
+    return {
+      next() {
+        const url = targets[index % targets.length].url;
+        index++;
+        return url;
+      },
+    };
+  }
+
+  // Weighted round robin: build a sequence repeating each target by its weight
+  const sequence: string[] = [];
+  for (const target of targets) {
+    for (let i = 0; i < target.weight; i++) {
+      sequence.push(target.url);
+    }
+  }
+  let index = 0;
+  return {
+    next() {
+      const url = sequence[index % sequence.length];
+      index++;
+      return url;
+    },
+  };
+}
 
 export function parseDuration(duration: string): number {
   const match = duration.match(/^(\d+)(ms|s|m)$/);
@@ -140,7 +181,8 @@ async function proxyRequest(
   res: ServerResponse,
   route: Route,
   globalTimeout: string,
-  circuitBreaker?: CircuitBreakerInstance
+  circuitBreaker?: CircuitBreakerInstance,
+  targetSelector?: TargetSelector
 ): Promise<void> {
   // Circuit breaker check
   if (circuitBreaker) {
@@ -152,7 +194,8 @@ async function proxyRequest(
     }
   }
 
-  const upstreamUrl = new URL(route.upstream.url!);
+  const selectedUrl = targetSelector ? targetSelector.next() : route.upstream.url!;
+  const upstreamUrl = new URL(selectedUrl);
   const upstreamPath = buildUpstreamPath(route, req.url ?? "/");
   const timeout = getTimeout(route, globalTimeout);
   const body = await bufferBody(req);
@@ -267,6 +310,12 @@ export function createGateway(config: GatewayConfig): Server {
     }
   }
 
+  // Create target selectors per route
+  const targetSelectors = new Map<string, TargetSelector>();
+  for (const route of config.routes) {
+    targetSelectors.set(route.path, createTargetSelector(route.upstream));
+  }
+
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     const pathname = url.pathname;
@@ -323,7 +372,8 @@ export function createGateway(config: GatewayConfig): Server {
 
     // Proxy to upstream
     const cb = circuitBreakers.get(route.path);
-    proxyRequest(req, res, route, config.gateway.global_timeout, cb);
+    const ts = targetSelectors.get(route.path);
+    proxyRequest(req, res, route, config.gateway.global_timeout, cb, ts);
   });
 
   return server;
