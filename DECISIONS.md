@@ -11,3 +11,5 @@ Right now, I'm going through and comparing the yaml to the types that Claude jus
 I'm now looking at tests to see if they accurately test the implementation we haven't made yet. I'll do tests one feature at a time. (After checking.) Tests look good!
 
 Now that config parsing is done, time for strip_prefix and timeouts. Tests first, then implementation. Let's do it. We're going to need mocks for servers, so let me check the implementation.
+
+I noticed that there was a new function `parseDuration` that was untested, so I added tests for that.
