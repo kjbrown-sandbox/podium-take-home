@@ -1,28 +1,9 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createMockUpstream, createSlowUpstream, MockUpstream } from "./helpers/mock-upstream.js";
+import { request } from "./helpers/request.js";
 import { startGateway } from "../src/server.js";
 import { GatewayConfig } from "../src/types.js";
-
-// Helper to make requests to the gateway
-async function request(
-  port: number,
-  path: string,
-  options: { method?: string; body?: string; headers?: Record<string, string> } = {}
-): Promise<{ status: number; headers: Record<string, string>; body: string; json: () => unknown }> {
-  const res = await fetch(`http://localhost:${port}${path}`, {
-    method: options.method ?? "GET",
-    body: options.body,
-    headers: options.headers,
-  });
-  const body = await res.text();
-  return {
-    status: res.status,
-    headers: Object.fromEntries(res.headers.entries()),
-    body,
-    json: () => JSON.parse(body),
-  };
-}
 
 describe("health endpoint", () => {
   let gateway: { close: () => Promise<void> };
