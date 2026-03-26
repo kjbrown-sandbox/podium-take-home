@@ -3,12 +3,12 @@ gateway:
   port: 8080
   # Admin/health endpoint is always available at GET /health regardless of config.
   # It should return 200 OK with JSON: { "status": "healthy", "uptime_seconds": <int> }
-  global_timeout: "30s"           # Default timeout for all upstream requests
-  global_rate_limit:              # Default rate limit applied to all routes unless overridden
+  global_timeout: "30s" # Default timeout for all upstream requests
+  global_rate_limit: # Default rate limit applied to all routes unless overridden
     requests: 100
     window: "60s"
-    strategy: "fixed_window"      # "fixed_window" or "sliding_window"
-    per: "ip"                     # Rate limit bucket key: "ip" or "global"
+    strategy: "fixed_window" # "fixed_window" or "sliding_window"
+    per: "ip" # Rate limit bucket key: "ip" or "global"
 
 routes:
   - path: "/api/users"
@@ -27,12 +27,12 @@ routes:
     strip_prefix: false
     upstream:
       url: "http://localhost:3002"
-      timeout: "5s"               # Override global timeout for this route
+      timeout: "5s" # Override global timeout for this route
     retry:
       attempts: 3
-      backoff: "exponential"      # "fixed" or "exponential"
+      backoff: "exponential" # "fixed" or "exponential"
       initial_delay: "1s"
-      on: [502, 503, 504]         # HTTP status codes that trigger a retry
+      on: [502, 503, 504] # HTTP status codes that trigger a retry
     rate_limit:
       requests: 10
       window: "10s"
@@ -41,30 +41,30 @@ routes:
 
   - path: "/api/products"
     methods: ["GET"]
-    strip_prefix: true            # /api/products/123 -> /123 when forwarded to upstream
+    strip_prefix: true # /api/products/123 -> /123 when forwarded to upstream
     upstream:
-      targets:                    # Multiple upstream targets for load balancing
+      targets: # Multiple upstream targets for load balancing
         - url: "http://localhost:3003"
           weight: 3
         - url: "http://localhost:3004"
           weight: 1
-      balance: "weighted_round_robin"  # "round_robin" or "weighted_round_robin"
+      balance: "weighted_round_robin" # "round_robin" or "weighted_round_robin"
       timeout: "10s"
     health_check:
-      path: "/healthz"
+      path: "/healthz" # Typo?
       interval: "30s"
-      unhealthy_threshold: 3      # Mark upstream unhealthy after 3 consecutive failures
+      unhealthy_threshold: 3 # Mark upstream unhealthy after 3 consecutive failures
 
   - path: "/api/legacy"
     methods: ["GET", "POST"]
-    strip_prefix: true            # /api/legacy/v1/data -> /v1/data when forwarded
+    strip_prefix: true # /api/legacy/v1/data -> /v1/data when forwarded
     upstream:
       url: "http://localhost:3005"
     request_transform:
       headers:
         add:
           X-Gateway: "gatewaykit"
-          X-Request-Start: "$request_time"  # Dynamic value: inject request timestamp
+          X-Request-Start: "$request_time" # Dynamic value: inject request timestamp
         remove: ["X-Debug", "X-Internal"]
       body:
         # Restructure the request body before forwarding
@@ -72,7 +72,7 @@ routes:
         mapping:
           user.id: "userId"
           user.name: "userName"
-          meta.source: "$literal:gateway"   # Inject a literal value
+          meta.source: "$literal:gateway" # Inject a literal value
           meta.timestamp: "$request_time"
     response_transform:
       headers:
@@ -82,7 +82,7 @@ routes:
       body:
         # Wrap the upstream response in an envelope
         envelope:
-          data: "$body"                     # The original response body goes here
+          data: "$body" # The original response body goes here
           gateway_metadata:
             served_at: "$response_time"
             route: "$route_path"
@@ -97,7 +97,7 @@ routes:
       header: "X-API-Key"
       keys: ["sk_live_abc123", "sk_live_def456"]
     circuit_breaker:
-      threshold: 5                # Trip after 5 failures
-      window: "60s"               # Within this time window
-      cooldown: "30s"             # Wait this long before trying upstream again
+      threshold: 5 # Trip after 5 failures
+      window: "60s" # Within this time window
+      cooldown: "30s" # Wait this long before trying upstream again
       # When tripped, return 503 with: { "error": "service_unavailable", "retry_after": <seconds_remaining> }
