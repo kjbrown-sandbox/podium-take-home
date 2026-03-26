@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "tsx --test ./test/config.test.ts ./test/proxy.test.ts ./test/parse-duration.test.ts ./test/rate-limit.test.ts ./test/rate-limiter.test.ts ./test/auth.test.ts",
+    "test": "tsx --test ./test/config.test.ts ./test/proxy.test.ts ./test/parse-duration.test.ts ./test/rate-limit.test.ts ./test/rate-limiter.test.ts ./test/auth.test.ts ./test/retry.test.ts",
     "start": "tsx src/main.ts"
   },
   "dependencies": {
