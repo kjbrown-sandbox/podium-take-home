@@ -155,6 +155,16 @@ export function createGateway(config: GatewayConfig): Server {
       return;
     }
 
+    // Auth
+    if (route.auth) {
+      const apiKey = req.headers[route.auth.header.toLowerCase()] as string | undefined;
+      if (!apiKey || !route.auth.keys.includes(apiKey)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+    }
+
     // Proxy to upstream
     proxyRequest(req, res, route, config.gateway.global_timeout);
   });
