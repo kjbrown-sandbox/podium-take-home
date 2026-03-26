@@ -31,3 +31,5 @@ Auth isn't too bad. Tests look okay. Time to implement. It's a very simple auth 
 Tests for retrying look solid too. Moving forward with implementation. We're storing the entire response now in our buffer instead of immediately piping it to the server because we need to store a copy if we want to retry it.
 
 Time for circtuit breaking now, ooooh. I've looked through the tests, they feel fine to me. Slightly redundant on checking that things work without the circuit breaking specs (it's the standard stuff already tested), but I believe in redundancy for tests when they're cheap. And these ones are. Onwards to implementation!
+
+Whoops, somehow missed header transforms. Doing that now. You get the picture: tests first, implementation after. Tests look good. To implement!
