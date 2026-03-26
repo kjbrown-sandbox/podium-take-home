@@ -6,10 +6,8 @@ import { parseConfig } from "../src/config.js";
 const fixturePath = path.join(import.meta.dirname, "fixtures", "gateway.yaml");
 
 describe("parseConfig", () => {
-  it("should throw 'not implemented' (stub verification)", () => {
-    assert.throws(() => parseConfig(fixturePath), {
-      message: "not implemented",
-    });
+  it("should parse config without throwing", () => {
+    assert.doesNotThrow(() => parseConfig(fixturePath));
   });
 
   describe("gateway settings", () => {
