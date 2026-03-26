@@ -46,44 +46,127 @@ function getTimeout(route: Route, globalTimeout: string): number {
   return parseDuration(timeoutStr);
 }
 
-function proxyRequest(
+function bufferBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+function sendUpstreamRequest(
+  method: string,
+  headers: Record<string, string | string[] | undefined>,
+  body: Buffer,
+  upstreamUrl: URL,
+  upstreamPath: string,
+  timeout: number
+): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const proxyReq = httpRequest(
+      {
+        hostname: upstreamUrl.hostname,
+        port: upstreamUrl.port,
+        path: upstreamPath,
+        method,
+        headers,
+      },
+      (proxyRes) => {
+        const chunks: Buffer[] = [];
+        proxyRes.on("data", (chunk) => chunks.push(chunk));
+        proxyRes.on("end", () => {
+          resolve({
+            statusCode: proxyRes.statusCode ?? 502,
+            headers: proxyRes.headers as Record<string, string | string[] | undefined>,
+            body: Buffer.concat(chunks),
+          });
+        });
+      }
+    );
+
+    proxyReq.setTimeout(timeout, () => {
+      proxyReq.destroy();
+      reject(new Error("timeout"));
+    });
+
+    proxyReq.on("error", (err) => reject(err));
+
+    proxyReq.end(body);
+  });
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getRetryDelay(attempt: number, backoff: string, initialDelayMs: number): number {
+  if (backoff === "exponential") {
+    return initialDelayMs * Math.pow(2, attempt);
+  }
+  return initialDelayMs;
+}
+
+async function proxyRequest(
   req: IncomingMessage,
   res: ServerResponse,
   route: Route,
   globalTimeout: string
-): void {
+): Promise<void> {
   const upstreamUrl = new URL(route.upstream.url!);
   const upstreamPath = buildUpstreamPath(route, req.url ?? "/");
   const timeout = getTimeout(route, globalTimeout);
+  const body = await bufferBody(req);
 
-  const proxyReq = httpRequest(
-    {
-      hostname: upstreamUrl.hostname,
-      port: upstreamUrl.port,
-      path: upstreamPath,
-      method: req.method,
-      headers: req.headers,
-    },
-    (proxyRes) => {
-      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-      proxyRes.pipe(res);
+  const maxAttempts = route.retry ? 1 + route.retry.attempts : 1;
+  const retryOn = route.retry?.on ?? [];
+  const initialDelayMs = route.retry ? parseDuration(route.retry.initial_delay) : 0;
+  const backoff = route.retry?.backoff ?? "fixed";
+
+  let lastStatusCode = 502;
+  let lastHeaders: Record<string, string | string[] | undefined> = {};
+  let lastBody = Buffer.alloc(0);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await delay(getRetryDelay(attempt - 1, backoff, initialDelayMs));
     }
-  );
 
-  proxyReq.setTimeout(timeout, () => {
-    proxyReq.destroy();
-    res.writeHead(504, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "gateway_timeout" }));
-  });
+    try {
+      const result = await sendUpstreamRequest(
+        req.method ?? "GET",
+        req.headers,
+        body,
+        upstreamUrl,
+        upstreamPath,
+        timeout
+      );
 
-  proxyReq.on("error", () => {
-    if (!res.headersSent) {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "bad_gateway" }));
+      lastStatusCode = result.statusCode;
+      lastHeaders = result.headers;
+      lastBody = result.body;
+
+      // If status is not retryable, or not configured for retry, return immediately
+      if (!retryOn.includes(result.statusCode)) {
+        res.writeHead(result.statusCode, result.headers);
+        res.end(result.body);
+        return;
+      }
+    } catch (err) {
+      if ((err as Error).message === "timeout") {
+        lastStatusCode = 504;
+        lastHeaders = { "Content-Type": "application/json" };
+        lastBody = Buffer.from(JSON.stringify({ error: "gateway_timeout" }));
+      } else {
+        lastStatusCode = 502;
+        lastHeaders = { "Content-Type": "application/json" };
+        lastBody = Buffer.from(JSON.stringify({ error: "bad_gateway" }));
+      }
     }
-  });
+  }
 
-  req.pipe(proxyReq);
+  // All retries exhausted — return last response
+  res.writeHead(lastStatusCode, lastHeaders);
+  res.end(lastBody);
 }
 
 function getClientIp(req: IncomingMessage): string {

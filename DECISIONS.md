@@ -26,4 +26,4 @@ I noticed some code duplication when it implemented rate limiting, so I refactor
 
 Auth isn't too bad. Tests look okay. Time to implement. It's a very simple auth thing, obviously nothing connected to OAuth or anything, but it'll do for this take home.
 
-Tests for retrying look solid too. Moving forward with implementation.
+Tests for retrying look solid too. Moving forward with implementation. We're storing the entire response now in our buffer instead of immediately piping it to the server because we need to store a copy if we want to retry it.
