@@ -6,6 +6,8 @@ Build **GatewayKit**, a lightweight, config-driven API gateway. It sits between 
 
 It's important that I, the developer, have full control over what gets built. Check in frequently to see what my opinions are. Do not automatically implement things, but you may offer suggestions.
 
+Prioritize test driven development (TDD) when possible.
+
 ## Constraints
 
 - **Language:** Use standard library HTTP server/client + a YAML parser only
