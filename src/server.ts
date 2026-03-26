@@ -7,6 +7,7 @@ import {
 } from "node:http";
 import { GatewayConfig, Route } from "./types.js";
 import { createRateLimiter, RateLimiter } from "./rate-limiter.js";
+import { createCircuitBreaker, CircuitBreakerInstance } from "./circuit-breaker.js";
 
 export function parseDuration(duration: string): number {
   const match = duration.match(/^(\d+)(ms|s|m)$/);
@@ -110,8 +111,19 @@ async function proxyRequest(
   req: IncomingMessage,
   res: ServerResponse,
   route: Route,
-  globalTimeout: string
+  globalTimeout: string,
+  circuitBreaker?: CircuitBreakerInstance
 ): Promise<void> {
+  // Circuit breaker check
+  if (circuitBreaker) {
+    const blocked = circuitBreaker.allowRequest();
+    if (blocked) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "service_unavailable", retry_after: blocked.retry_after }));
+      return;
+    }
+  }
+
   const upstreamUrl = new URL(route.upstream.url!);
   const upstreamPath = buildUpstreamPath(route, req.url ?? "/");
   const timeout = getTimeout(route, globalTimeout);
@@ -147,6 +159,11 @@ async function proxyRequest(
 
       // If status is not retryable, or not configured for retry, return immediately
       if (!retryOn.includes(result.statusCode)) {
+        if (result.statusCode >= 500) {
+          circuitBreaker?.recordFailure();
+        } else {
+          circuitBreaker?.recordSuccess();
+        }
         res.writeHead(result.statusCode, result.headers);
         res.end(result.body);
         return;
@@ -164,7 +181,8 @@ async function proxyRequest(
     }
   }
 
-  // All retries exhausted — return last response
+  // All retries exhausted — record failure and return last response
+  circuitBreaker?.recordFailure();
   res.writeHead(lastStatusCode, lastHeaders);
   res.end(lastBody);
 }
@@ -191,6 +209,14 @@ export function createGateway(config: GatewayConfig): Server {
   for (const route of config.routes) {
     if (route.rate_limit) {
       routeLimiters.set(route.path, createRateLimiter(route.rate_limit));
+    }
+  }
+
+  // Create circuit breakers per route
+  const circuitBreakers = new Map<string, CircuitBreakerInstance>();
+  for (const route of config.routes) {
+    if (route.circuit_breaker) {
+      circuitBreakers.set(route.path, createCircuitBreaker(route.circuit_breaker));
     }
   }
 
@@ -249,7 +275,8 @@ export function createGateway(config: GatewayConfig): Server {
     }
 
     // Proxy to upstream
-    proxyRequest(req, res, route, config.gateway.global_timeout);
+    const cb = circuitBreakers.get(route.path);
+    proxyRequest(req, res, route, config.gateway.global_timeout, cb);
   });
 
   return server;
